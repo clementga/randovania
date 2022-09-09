@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -14,11 +17,33 @@ def flask_command_logic(args: Namespace) -> None:
     import randovania.monitoring
 
     randovania.monitoring.server_init(sampling_rate=sampling_rate)
+    new_env = os.environ.copy()
+    if randovania.CONFIGURATION_FILE_PATH is not None:
+        new_env["RANDOVANIA_CONFIGURATION_PATH"] = os.fspath(randovania.CONFIGURATION_FILE_PATH)
 
-    from randovania.server import app
+    raise SystemExit(
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "sanic",
+                "randovania.server.app:create_app",
+                "--dev",
+                "--motd",
+            ],
+            env=new_env,
+            check=False,
+        ).returncode
+    )
 
-    server_app = app.create_app()
-    server_app.sa.sio.run(server_app, host="0.0.0.0")
+    # sampling_rate = randovania.get_configuration().get("sentry_sampling_rate", 1.0)
+    #
+    # import randovania.monitoring
+    # randovania.monitoring.server_init(sampling_rate=sampling_rate)
+    #
+    # from randovania.server import app
+    # server_app = app.create_app()
+    # server_app.run(host="0.0.0.0")
 
 
 def add_flask_command(sub_parsers: _SubParsersAction) -> None:

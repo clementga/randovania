@@ -1,10 +1,11 @@
 import logging
+import os
 import time
 from logging.config import dictConfig
 from pathlib import Path
 
 import flask
-import werkzeug.middleware.proxy_fix
+import sanic
 from flask_socketio import ConnectionRefusedError
 
 import randovania
@@ -45,6 +46,9 @@ class ServerLoggingFormatter(logging.Formatter):
 
 
 def create_app():
+    if "RANDOVANIA_CONFIGURATION_PATH" in os.environ:
+        randovania.CONFIGURATION_FILE_PATH = Path(os.environ["RANDOVANIA_CONFIGURATION_PATH"])
+
     configuration = randovania.get_configuration()
 
     dictConfig(
@@ -72,9 +76,10 @@ def create_app():
             "root": {"level": "INFO", "handlers": ["wsgi"]},
         }
     )
+    # logging.setLogRecordFactory(record_factory)
 
-    app = flask.Flask(__name__)
-    app.wsgi_app = werkzeug.middleware.proxy_fix.ProxyFix(app.wsgi_app, x_proto=1, x_prefix=1)
+    app = sanic.Sanic("randovania_server")
+    app.config.PROXIES_COUNT = 2
     app.config["SECRET_KEY"] = configuration["server_config"]["secret_key"]
     app.config["GUEST_KEY"] = configuration["guest_secret"].encode("ascii") if "guest_secret" in configuration else None
     app.config["DISCORD_CLIENT_ID"] = configuration["discord_client_id"]
@@ -105,13 +110,11 @@ def create_app():
     connected_clients.set(0)
 
     @app.route("/")
-    def index():
-        app.logger.info(
-            "Version checked by %s (%s)",
-            flask.request.environ["REMOTE_ADDR"],
-            flask.request.environ.get("HTTP_X_FORWARDED_FOR"),
+    def index(request: sanic.Request):
+        sanic.log.logger.info(
+            "Version checked by %s (%s)", request.remote_addr, request.headers.get("HTTP_X_FORWARDED_FOR")
         )
-        return randovania.VERSION
+        return sanic.text(randovania.VERSION)
 
     server_version = randovania.VERSION
 

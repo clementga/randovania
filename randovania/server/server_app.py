@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, TypeVar
 
 import flask
 import flask_discord
-import flask_socketio
 import peewee
 import requests
 import sentry_sdk
+import socketio.exceptions
 from cryptography.fernet import Fernet
 from prometheus_flask_exporter import PrometheusMetrics
 
@@ -24,7 +24,8 @@ from randovania.server.lib import logger
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    import socketio.exceptions
+    import sanic
+
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -57,7 +58,7 @@ class EnforceDiscordRole:
 
 
 class ServerApp:
-    sio: flask_socketio.SocketIO
+    _sio: socketio.AsyncServer
     discord: CustomDiscordOAuth2Session
     metrics: PrometheusMetrics
     fernet_encrypt: Fernet
@@ -65,9 +66,10 @@ class ServerApp:
     enforce_role: EnforceDiscordRole | None = None
     expected_headers: dict[str, str]
 
-    def __init__(self, app: flask.Flask):
+    def __init__(self, app: sanic.Sanic):
         self.app = app
-        self.sio = flask_socketio.SocketIO(app)
+        self._sio = socketio.AsyncServer(async_mode="sanic")
+        self._sio.attach(app)
         self.discord = CustomDiscordOAuth2Session(app)
         self.metrics = PrometheusMetrics(app)
         self.fernet_encrypt = Fernet(app.config["FERNET_KEY"])
@@ -79,8 +81,8 @@ class ServerApp:
         self.expected_headers = connection_headers()
         self.expected_headers.pop("X-Randovania-Version")
 
-    def get_server(self) -> socketio.Server:
-        return self.sio.server
+    def get_server(self) -> socketio.AsyncServer:
+        return self._sio
 
     def get_environ(self) -> Mapping:
         return self.get_server().get_environ(self.request_sid)
@@ -92,8 +94,8 @@ class ServerApp:
         except AttributeError:
             return flask.session["sid"]
 
-    def save_session(self, session, namespace=None):
-        self.get_server().save_session(self.request_sid, session, namespace=namespace)
+    async def save_session(self, session, namespace=None):
+        await self.get_server().save_session(self._request_sid, session, namespace=namespace)
 
     def get_session(self, *, sid=None, namespace=None) -> dict:
         if sid is None:
@@ -105,9 +107,9 @@ class ServerApp:
             sid = self.request_sid
         return self.get_server().session(sid, namespace=namespace)
 
-    def get_current_user(self) -> User:
+    async def get_current_user(self) -> User:
         try:
-            return User.get_by_id(self.get_session()["user-id"])
+            return User.get_by_id((await self.get_session())["user-id"])
         except KeyError:
             raise error.NotLoggedInError
         except peewee.DoesNotExist:
@@ -174,7 +176,7 @@ class ServerApp:
 
         metric_wrapper = self.metrics.summary(f"socket_{message}", f"Socket.io messages of type {message}")
 
-        return self.sio.on(message, namespace)(metric_wrapper(_handler))
+        return self._sio.on(message, namespace)(metric_wrapper(_handler))
 
     def on_with_wrapper(self, message: str, handler: Callable[[ServerApp, T], R]):
         types = typing.get_type_hints(handler)
@@ -194,7 +196,7 @@ class ServerApp:
         def decorator(handler):
             @self.app.route(route, **kwargs)
             @functools.wraps(handler)
-            def _handler(**kwargs):
+            async def _handler(**kwargs):
                 try:
                     user: User
                     if not self.app.debug:
@@ -204,7 +206,7 @@ class ServerApp:
                     else:
                         user = list(User.select().limit(1))[0]
 
-                    return handler(user, **kwargs)
+                    return await handler(user, **kwargs)
 
                 except flask_discord.exceptions.Unauthorized:
                     return "Unknown user", 404
