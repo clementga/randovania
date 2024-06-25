@@ -3,6 +3,9 @@ from __future__ import annotations
 import dataclasses
 import typing
 
+import typing_extensions
+
+from randovania.game_description.game_database_view import ResourceDatabaseView
 from randovania.game_description.resources import search
 from randovania.game_description.resources.resource_info import ResourceInfo
 from randovania.game_description.resources.resource_type import ResourceType
@@ -40,7 +43,7 @@ class NamedRequirementTemplate:
 
 
 @dataclasses.dataclass(frozen=True)
-class ResourceDatabase:
+class ResourceDatabase(ResourceDatabaseView):
     game_enum: RandovaniaGame
     item: list[ItemResourceInfo]
     event: list[SimpleResourceInfo]
@@ -93,26 +96,53 @@ class ResourceDatabase:
             typing.cast(list[ResourceInfo], self.get_by_type(resource_type)), name, resource_type
         )
 
+    @typing_extensions.override
     def get_item(self, short_name: str) -> ItemResourceInfo:
+        """
+        Gets a ItemResourceInfo, using internal name
+        """
         return search.find_resource_info_with_id(self.item, short_name, ResourceType.ITEM)
 
+    @typing_extensions.override
     def get_event(self, short_name: str) -> SimpleResourceInfo:
+        """
+        Gets a ResourceInfo of type Event, using internal name
+        """
         return search.find_resource_info_with_id(self.event, short_name, ResourceType.EVENT)
 
+    @typing_extensions.override
     def get_trick(self, short_name: str) -> TrickResourceInfo:
+        """
+        Gets a TrickResourceInfo using internal name
+        """
         return search.find_resource_info_with_id(self.trick, short_name, ResourceType.TRICK)
 
+    @typing_extensions.override
+    def get_all_tricks(self) -> list[TrickResourceInfo]:
+        """
+        Gets a list of all TrickResourceInfo
+        """
+        return self.trick
+
+    @typing_extensions.override
     def get_damage(self, short_name: str) -> SimpleResourceInfo:
+        """
+        Gets a ResourceInfo of type Damage, using internal name
+        """
         return search.find_resource_info_with_id(self.damage, short_name, ResourceType.DAMAGE)
 
-    def get_item_by_name(self, name: str) -> ItemResourceInfo:
+    def get_item_by_display_name(self, name: str) -> ItemResourceInfo:
         return search.find_resource_info_with_long_name(self.item, name)
 
     @property
     def energy_tank(self) -> ItemResourceInfo:
         return self.energy_tank_item
 
+    @typing_extensions.override
     def get_damage_reduction(self, resource: SimpleResourceInfo, current_resources: ResourceCollection) -> float:
+        """
+        TODO
+        """
         cached_result = current_resources.get_damage_reduction_cache(resource)
         if cached_result is not None:
             return cached_result

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from randovania.game_description.db.configurable_node import ConfigurableNode
 from randovania.game_description.requirements.requirement_and import RequirementAnd
 from randovania.game_description.requirements.resource_requirement import ResourceRequirement
-from randovania.game_description.resources import search
 from randovania.game_description.resources.damage_reduction import DamageReduction
 from randovania.game_description.resources.resource_type import ResourceType
 from randovania.games.prime2.layout.echoes_configuration import EchoesConfiguration, LayoutSkyTempleKeyMode
@@ -19,7 +18,7 @@ if TYPE_CHECKING:
     from random import Random
 
     from randovania.game_description.db.pickup_node import PickupNode
-    from randovania.game_description.game_description import GameDescription
+    from randovania.game_description.game_database_view import GameDatabaseView
     from randovania.game_description.game_patches import GamePatches
     from randovania.game_description.resources.resource_database import ResourceDatabase
     from randovania.game_description.resources.resource_info import ResourceGain
@@ -38,7 +37,7 @@ def is_boss_location(node: PickupNode, config: EchoesConfiguration) -> bool:
 
 
 class EchoesBootstrap(Bootstrap):
-    def create_damage_state(self, game: GameDescription, configuration: EchoesConfiguration) -> DamageState:
+    def create_damage_state(self, game: GameDatabaseView, configuration: EchoesConfiguration) -> DamageState:
         return EnergyTankDamageState(
             configuration.energy_per_tank - 1,
             configuration.energy_per_tank,
@@ -95,8 +94,8 @@ class EchoesBootstrap(Bootstrap):
         damage_reductions = copy.copy(db.damage_reductions)
         damage_reductions[db.get_by_type_and_index(ResourceType.DAMAGE, "DarkWorld1")] = [
             DamageReduction(None, configuration.varia_suit_damage / 6.0),
-            DamageReduction(db.get_item_by_name("Dark Suit"), configuration.dark_suit_damage / 6.0),
-            DamageReduction(db.get_item_by_name("Light Suit"), 0.0),
+            DamageReduction(db.get_item_by_display_name("Dark Suit"), configuration.dark_suit_damage / 6.0),
+            DamageReduction(db.get_item_by_display_name("Light Suit"), 0.0),
         ]
         return dataclasses.replace(db, damage_reductions=damage_reductions)
 
@@ -112,16 +111,17 @@ class EchoesBootstrap(Bootstrap):
         return super().assign_pool_results(rng, configuration, patches, pool_results)
 
     def apply_game_specific_patches(
-        self, configuration: EchoesConfiguration, game: GameDescription, patches: GamePatches
-    ) -> None:
-        scan_visor = search.find_resource_info_with_long_name(game.resource_database.item, "Scan Visor")
+        self, game: GameDatabaseView, configuration: EchoesConfiguration, patches: GamePatches
+    ) -> GameDatabaseView:
+        resource_database = game.get_resource_database_view()
+        scan_visor = resource_database.get_item("Scan")
         scan_visor_req = ResourceRequirement.simple(scan_visor)
 
         translator_gates = patches.game_specific["translator_gates"]
 
-        for node in game.region_list.iterate_nodes_of_type(ConfigurableNode):
+        for _, _, node in game.iterate_nodes_of_type(ConfigurableNode):
             requirement = LayoutTranslatorRequirement(translator_gates[node.identifier.as_string])
-            translator = game.resource_database.get_item(requirement.item_name)
+            translator = resource_database.get_item(requirement.item_name)
             game.region_list.configurable_nodes[node.identifier] = RequirementAnd(
                 [
                     scan_visor_req,
