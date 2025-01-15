@@ -8,6 +8,7 @@ import flask_discord.models
 import flask_socketio
 import oauthlib
 import peewee
+import sanic
 from oauthlib.oauth2.rfc6749.errors import InvalidTokenError
 
 from randovania.network_common import error
@@ -15,6 +16,8 @@ from randovania.server.database import User, UserAccessToken
 from randovania.server.lib import logger
 from randovania.server.multiplayer import session_common
 from randovania.server.server_app import ServerApp
+
+bp = sanic.Blueprint("user_session")
 
 
 def _encrypt_session_for_user(sa: ServerApp, session: dict) -> bytes:
@@ -186,8 +189,10 @@ def logout(sa: ServerApp):
         session.pop("user-id", None)
 
 
-def browser_login_with_discord(sa: ServerApp):
+@bp.route("/login")
+def browser_login_with_discord(request: sanic.Request) -> sanic.HTTPResponse:
     sid = flask.request.args.get("sid")
+    sa = None
     if sid is not None:
         if not sa.get_server().rooms(sid):
             return (
@@ -205,6 +210,7 @@ def browser_login_with_discord(sa: ServerApp):
     return sa.discord.create_session()
 
 
+@bp.route("login_callback")
 def browser_discord_login_callback(sa: ServerApp):
     try:
         try:
@@ -282,52 +288,57 @@ def browser_discord_login_callback(sa: ServerApp):
         )
 
 
+@bp.get("/me")
+def browser_me(request: sanic.Request) -> sanic.HTTPResponse:
+    user: User = request.ctx.user
+    result = f"Hello {user.name}. Admin? {user.admin}<br />Access Tokens:<ul>\n"
+
+    for token in user.access_tokens:
+        delete = f' <a href="{request.url_for("user_session.delete_token", token=token.name)}">Delete</a>'
+        result += f"<li>{token.name} created at {token.creation_date}. Last used at {token.last_used}. {delete}</li>"
+
+    result += f'<li><form class="form-inline" method="POST" action="{request.url_for("user_session.create_token")}">'
+    result += '<input id="name" placeholder="Access token name" name="name">'
+    result += '<button type="submit">Create new</button></li></ul>'
+
+    return sanic.html(result)
+
+
+@bp.post("/create_token")
+def create_token(request: sanic.Request) -> sanic.HTTPResponse:
+    user: User = request.ctx.user
+    sa = None
+
+    token_name: str = request.form["name"]
+    go_back = f'<a href="{request.url_for("user_session.browser_me")}">Go back</a>'
+
+    try:
+        token = UserAccessToken.create(
+            user=user,
+            name=token_name,
+        )
+        session = _create_session_with_access_token(sa, token).decode("ascii")
+        return sanic.html(f"Token: <pre>{session}</pre><br />{go_back}")
+
+    except peewee.IntegrityError as e:
+        return sanic.html(f"Unable to create token: {e}<br />{go_back}")
+
+
+@bp.route("/delete_token")
+def delete_token(request: sanic.Request) -> sanic.HTTPResponse:
+    user: User = request.ctx.user
+
+    token_name: str = request.args["token"]
+    UserAccessToken.get(
+        user=user,
+        name=token_name,
+    ).delete_instance()
+    return sanic.redirect(request.url_for("user_session.browser_me"))
+
+
 def setup_app(sa: ServerApp):
     sa.on("start_discord_login_flow", start_discord_login_flow)
     sa.on("login_with_guest", login_with_guest)
     sa.on("restore_user_session", restore_user_session)
     sa.on("logout", logout)
-
-    sa.route_path("/login", browser_login_with_discord)
-    sa.route_path("/login_callback", browser_discord_login_callback)
-
-    @sa.route_with_user("/me")
-    def browser_me(user: User):
-        result = f"Hello {user.name}. Admin? {user.admin}<br />Access Tokens:<ul>\n"
-
-        for token in user.access_tokens:
-            delete = f' <a href="{flask.url_for("delete_token", token=token.name)}">Delete</a>'
-            result += (
-                f"<li>{token.name} created at {token.creation_date}. Last used at {token.last_used}. {delete}</li>"
-            )
-
-        result += f'<li><form class="form-inline" method="POST" action="{flask.url_for("create_token")}">'
-        result += '<input id="name" placeholder="Access token name" name="name">'
-        result += '<button type="submit">Create new</button></li></ul>'
-
-        return result
-
-    @sa.route_with_user("/create_token", methods=["POST"])
-    def create_token(user: User):
-        token_name: str = flask.request.form["name"]
-        go_back = f'<a href="{flask.url_for("browser_me")}">Go back</a>'
-
-        try:
-            token = UserAccessToken.create(
-                user=user,
-                name=token_name,
-            )
-            session = _create_session_with_access_token(sa, token).decode("ascii")
-            return f"Token: <pre>{session}</pre><br />{go_back}"
-
-        except peewee.IntegrityError as e:
-            return f"Unable to create token: {e}<br />{go_back}"
-
-    @sa.route_with_user("/delete_token")
-    def delete_token(user: User):
-        token_name: str = flask.request.args["token"]
-        UserAccessToken.get(
-            user=user,
-            name=token_name,
-        ).delete_instance()
-        return flask.redirect(flask.url_for("browser_me"))
+    sa.app.blueprint(bp)
