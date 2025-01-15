@@ -12,11 +12,10 @@ if TYPE_CHECKING:
 def flask_command_logic(args: Namespace) -> None:
     import randovania
 
-    sampling_rate = randovania.get_configuration().get("sentry_sampling_rate", 1.0)
+    # sampling_rate = randovania.get_configuration().get("sentry_sampling_rate", 1.0)
+    # import randovania.monitoring
+    # randovania.monitoring.server_init(sampling_rate=sampling_rate)
 
-    import randovania.monitoring
-
-    randovania.monitoring.server_init(sampling_rate=sampling_rate)
     new_env = os.environ.copy()
     if randovania.CONFIGURATION_FILE_PATH is not None:
         new_env["RANDOVANIA_CONFIGURATION_PATH"] = os.fspath(randovania.CONFIGURATION_FILE_PATH)

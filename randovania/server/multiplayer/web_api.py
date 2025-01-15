@@ -2,27 +2,35 @@ import html
 import json
 
 import construct
-import flask
-from flask.typing import ResponseReturnValue
-from playhouse import flask_utils
+import sanic
+from python_paginate.web.sanic_paginate import Pagination
 
 from randovania.game_description import default_database
 from randovania.layout.versioned_preset import VersionedPreset
-from randovania.lib import json_lib
 from randovania.network_common import remote_inventory
-from randovania.server.database import MultiplayerMembership, MultiplayerSession, User, World, WorldUserAssociation
+from randovania.server.database import MultiplayerMembership, MultiplayerSession, World, WorldUserAssociation
 from randovania.server.server_app import ServerApp
 
+bp = sanic.Blueprint("web_api")
 
-def admin_sessions(user: User) -> ResponseReturnValue:
-    paginated_query = flask_utils.PaginatedQuery(
-        MultiplayerSession.select().order_by(MultiplayerSession.creation_date.desc()),
-        paginate_by=20,
-        check_bounds=True,
-    )
+
+def _get_session(session_id: int) -> MultiplayerSession:
+    try:
+        return MultiplayerSession.get_by_id(session_id)
+    except MultiplayerSession.DoesNotExist:
+        raise sanic.SanicException("No such session.", status_code=404)
+
+
+@bp.route("/sessions")
+async def admin_sessions(request: sanic.Request) -> sanic.HTTPResponse:
+    query = MultiplayerSession.select().order_by(MultiplayerSession.creation_date.desc())
+    pagination = Pagination(request, total=query.count())
+
+    if pagination.page > pagination.total_pages:
+        raise sanic.SanicException("No such page.", status_code=404)
 
     lines = []
-    for session in paginated_query.get_object_list():
+    for session in query.paginate(pagination.page, pagination.per_page):
         assert isinstance(session, MultiplayerSession)
         lines.append(
             "<tr>{}</tr>".format(
@@ -30,7 +38,7 @@ def admin_sessions(user: User) -> ResponseReturnValue:
                     f"<td>{col}</td>"
                     for col in [
                         "<a href='{}'>{}</a>".format(
-                            flask.url_for("admin_session", session_id=session.id),
+                            request.url_for("web_api.admin_session", session_id=session.id),
                             html.escape(session.name),
                         ),
                         html.escape(session.creator.name),
@@ -43,33 +51,32 @@ def admin_sessions(user: User) -> ResponseReturnValue:
             )
         )
 
-    page = paginated_query.get_page()
     previous = "Previous"
-    if page > 1:
-        previous = "<a href='{}'>Previous</a>".format(flask.url_for(".admin_sessions", page=page - 1))
+    if pagination.page > 1:
+        previous = "<a href='{}'>Previous</a>".format(
+            request.url_for("web_api.admin_sessions", page=pagination.page - 1)
+        )
 
     next_link = "Next"
-    if page < paginated_query.get_page_count():
-        next_link = "<a href='{}'>Next</a>".format(flask.url_for(".admin_sessions", page=page + 1))
+    if pagination.page < pagination.total_pages:
+        next_link = "<a href='{}'>Next</a>".format(request.url_for("web_api.admin_sessions", page=pagination.page + 1))
 
     header = ["Name", "Creator", "Creation Date", "Num Users", "Num Worlds", "Has Password?"]
-    return (
-        "<table border='1'><tr>{header}</tr>{content}</table>Page {page} of {num_pages}. {previous} / {next}."
-    ).format(
-        header="".join(f"<th>{it}</th>" for it in header),
-        content="".join(lines),
-        page=page,
-        num_pages=paginated_query.get_page_count(),
-        previous=previous,
-        next=next_link,
+    return sanic.html(
+        ("<table border='1'><tr>{header}</tr>{content}</table>Page {page} of {num_pages}. {previous} / {next}.").format(
+            header="".join(f"<th>{it}</th>" for it in header),
+            content="".join(lines),
+            page=pagination.page,
+            num_pages=pagination.total_pages,
+            previous=previous,
+            next=next_link,
+        )
     )
 
 
-def admin_session(user: User, session_id: int) -> ResponseReturnValue:
-    try:
-        session: MultiplayerSession = MultiplayerSession.get_by_id(session_id)
-    except MultiplayerSession.DoesNotExist:
-        return "Session not found", 404
+@bp.route("/session/<session_id>")
+def admin_session(request: sanic.Request, session_id: int) -> sanic.HTTPResponse:
+    session = _get_session(session_id)
 
     rows = []
 
@@ -107,7 +114,7 @@ def admin_session(user: User, session_id: int) -> ResponseReturnValue:
                 ", ".join(inventory),
                 MultiplayerMembership.get_by_ids(association.user_id, session_id).admin,
                 "<a href='{link}'>Download</a>".format(
-                    link=flask.url_for("download_world_preset", world_id=association.world_id)
+                    link=request.url_for("web_api.download_world_preset", world_id=association.world_id)
                 ),
             ]
         )
@@ -125,68 +132,60 @@ def admin_session(user: User, session_id: int) -> ResponseReturnValue:
         if session.password is not None
         else "Session is not password protected",
         "<p><a href='{link}'>Download rdvgame</a></p>".format(
-            link=flask.url_for("download_session_spoiler", session_id=session_id)
+            link=request.url_for("web_api.download_session_spoiler", session_id=session_id)
         )
         if session.has_layout_description()
         else "<p>No rdvgame attached</p>",
         "<p><a href='{link}'>Delete session</a></p>".format(
-            link=flask.url_for("delete_session", session_id=session_id)
+            link=request.url_for("web_api.delete_session", session_id=session_id)
         ),
         table,
     ]
 
-    return "\n".join(entries)
+    return sanic.html("\n".join(entries))
 
 
-def download_session_spoiler(user: User, session_id: int) -> ResponseReturnValue:
-    try:
-        session: MultiplayerSession = MultiplayerSession.get_by_id(session_id)
-    except MultiplayerSession.DoesNotExist:
-        return "Session not found", 404
+@bp.route("/session/<session_id>/rdvgame")
+def download_session_spoiler(request: sanic.Request, session_id: int) -> sanic.HTTPResponse:
+    session = _get_session(session_id)
 
     layout = session.get_layout_description_as_json()
     if layout is None:
-        return flask.abort(404)
+        raise sanic.SanicException("Session does not have spoiler.", status_code=404)
 
-    response = flask.make_response(json_lib.encode(layout))
-    response.headers["Content-Disposition"] = f"attachment; filename={session.name}.rdvgame"
-    return response
+    return sanic.json(layout, headers={"Content-Disposition": f"attachment; filename={session.name}.rdvgame"})
 
 
-def download_world_preset(user: User, world_id: int) -> ResponseReturnValue:
+@bp.route("/world/<world_id>/rdvpreset")
+def download_world_preset(request: sanic.Request, world_id: int) -> sanic.HTTPResponse:
     try:
         world = World.get_by_id(world_id)
     except World.DoesNotExist:
-        return "World not found", 404
+        raise sanic.SanicException("World does not exist.", status_code=404)
 
-    try:
-        session: MultiplayerSession = MultiplayerSession.get_by_id(world.session_id)
-    except MultiplayerSession.DoesNotExist:
-        return "Session not found", 404
+    session = _get_session(world.session_id)
 
-    response = flask.make_response(world.preset)
-    response.headers["Content-Disposition"] = f"attachment; filename={session.name} - {world.name}.rdvpreset"
-    return response
+    return sanic.text(
+        world.preset,
+        content_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={session.name} - {world.name}.rdvpreset"},
+    )
 
 
-def delete_session(user: User, session_id: int) -> ResponseReturnValue:
-    if flask.request.method == "GET":
-        return '<form method="POST"><input type="submit" value="Confirm delete"></form>'
+@bp.route("/session/<session_id>/delete", methods=["GET", "POST"])
+def delete_session(request: sanic.Request, session_id: int) -> sanic.HTTPResponse:
+    if request.method == "GET":
+        return sanic.html('<form method="POST"><input type="submit" value="Confirm delete"></form>')
 
-    try:
-        session: MultiplayerSession = MultiplayerSession.get_by_id(session_id)
-    except MultiplayerSession.DoesNotExist:
-        return "Session not found", 404
+    session = _get_session(session_id)
     session.delete_instance(recursive=True)
 
-    return "Session deleted. <a href='{to_list}'>Return to list</a>".format(
-        to_list=flask.url_for("admin_sessions"),
+    return sanic.html(
+        "Session deleted. <a href='{to_list}'>Return to list</a>".format(
+            to_list=request.url_for("web_api.admin_sessions"),
+        )
     )
 
 
 def setup_app(sa: ServerApp):
-    sa.route_with_user("/sessions", need_admin=True)(admin_sessions)
-    sa.route_with_user("/session/<session_id>", need_admin=True)(admin_session)
-    sa.route_with_user("/session/<session_id>/rdvgame", need_admin=True)(download_session_spoiler)
-    sa.route_with_user("/session/<session_id>/delete", methods=["GET", "POST"], need_admin=True)(delete_session)
-    sa.route_with_user("/world/<world_id>/rdvpreset", need_admin=True)(download_world_preset)
+    sa.app.blueprint(bp)

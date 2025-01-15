@@ -45,7 +45,7 @@ class ServerLoggingFormatter(logging.Formatter):
         return super().format(record)
 
 
-def create_app():
+def create_app(args):
     if "RANDOVANIA_CONFIGURATION_PATH" in os.environ:
         randovania.CONFIGURATION_FILE_PATH = Path(os.environ["RANDOVANIA_CONFIGURATION_PATH"])
 
@@ -102,12 +102,12 @@ def create_app():
     database_migration.apply_migrations()
 
     sa = ServerApp(app)
-    app.sa = sa
+    app.ctx.sa = sa
     multiplayer.setup_app(sa)
     user_session.setup_app(sa)
 
-    connected_clients = sa.metrics.info("connected_clients", "How many clients are connected right now.")
-    connected_clients.set(0)
+    # connected_clients = sa.metrics.info("connected_clients", "How many clients are connected right now.")
+    # connected_clients.set(0)
 
     @app.route("/")
     def index(request: sanic.Request):
@@ -138,7 +138,7 @@ def create_app():
                 )
                 raise ConnectionRefusedError(error_message)
 
-            connected_clients.inc()
+            # connected_clients.inc()
 
             app.logger.info(
                 f"Client {sid} at {environ['REMOTE_ADDR']} ({forwarded_for}) with "
@@ -155,7 +155,7 @@ def create_app():
 
     @sa.get_server().on("disconnect")
     def disconnect(sid):
-        connected_clients.dec()
+        # connected_clients.dec()
 
         app.logger.info(f"Client at {sa.current_client_ip(sid)} disconnected.")
 

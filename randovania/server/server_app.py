@@ -12,12 +12,13 @@ import requests
 import sentry_sdk
 import socketio.exceptions
 from cryptography.fernet import Fernet
-from prometheus_flask_exporter import PrometheusMetrics
 
+# from prometheus_flask_exporter import PrometheusMetrics
 from randovania.bitpacking import construct_pack
 from randovania.network_common import connection_headers, error
 from randovania.server import client_check
-from randovania.server.custom_discord_oauth import CustomDiscordOAuth2Session
+
+# from randovania.server.custom_discord_oauth import CustomDiscordOAuth2Session
 from randovania.server.database import User, World
 from randovania.server.lib import logger
 
@@ -59,8 +60,8 @@ class EnforceDiscordRole:
 
 class ServerApp:
     _sio: socketio.AsyncServer
-    discord: CustomDiscordOAuth2Session
-    metrics: PrometheusMetrics
+    # discord: CustomDiscordOAuth2Session
+    # metrics: PrometheusMetrics
     fernet_encrypt: Fernet
     guest_encrypt: Fernet | None = None
     enforce_role: EnforceDiscordRole | None = None
@@ -70,8 +71,9 @@ class ServerApp:
         self.app = app
         self._sio = socketio.AsyncServer(async_mode="sanic")
         self._sio.attach(app)
-        self.discord = CustomDiscordOAuth2Session(app)
-        self.metrics = PrometheusMetrics(app)
+        # self.discord = CustomDiscordOAuth2Session(app)
+        # self.metrics = PrometheusMetrics(app)
+
         self.fernet_encrypt = Fernet(app.config["FERNET_KEY"])
         if app.config["GUEST_KEY"] is not None:
             self.guest_encrypt = Fernet(app.config["GUEST_KEY"])
@@ -174,9 +176,9 @@ class ServerApp:
                     )
                     return error.ServerError().as_json
 
-        metric_wrapper = self.metrics.summary(f"socket_{message}", f"Socket.io messages of type {message}")
+        # metric_wrapper = self.metrics.summary(f"socket_{message}", f"Socket.io messages of type {message}")
 
-        return self._sio.on(message, namespace)(metric_wrapper(_handler))
+        return self._sio.on(message, namespace)(_handler)
 
     def on_with_wrapper(self, message: str, handler: Callable[[ServerApp, T], R]):
         types = typing.get_type_hints(handler)
@@ -190,7 +192,8 @@ class ServerApp:
         return self.on(message, _handler, with_header_check=True)
 
     def route_path(self, route: str, target):
-        return self.app.add_url_rule(route, target.__name__, functools.partial(target, self))
+        return self.app.add_route(target, route)
+        # return self.app.add_route(functools.partial(target, self), route, name=target.__name__)
 
     def route_with_user(self, route: str, *, need_admin: bool = False, **kwargs):
         def decorator(handler):
