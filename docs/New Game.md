@@ -37,7 +37,7 @@ Replace the values of the command with appropriate values for your game. The mea
 - short-name: Used to prefix all classes used by your game, and in user-facing elements that needs to be brief.
 - long-name: Used in user-facing elements to mention your game.
 
-The command check if the provided values fit the naming rules for each of these.
+The command checks if the provided values fit the naming rules for each of these.
 
 ## Basic game structure
 
@@ -147,12 +147,6 @@ Define a [JSON Schema](https://json-schema.org/understanding-json-schema/) that 
 This makes for a good documentation of what is the input for the patcher, as well as a very good safety against
 misconfiguration in Randovania.
 
-# Multiworld
-
-Before a game can work in Multiworld, it must first work properly as a solo game. It is highly recommended to finish the basic integration first.
-
-**TODO**
-
 # Expectations of a Development Game
 
 After a game has been merged and is available in development builds, the responsibility of maintaining it is now shared between you and the Randovania team:
@@ -160,6 +154,10 @@ After a game has been merged and is available in development builds, the respons
 - You: Work towards the game reaching stable.
 
 We're happy to support new games by doing our part, but since that has a cost, that we don't want to be doing forever, there are some expectations regarding time frames:
+
+### Active Development
+
+Please don't go for too long without visible development of either patcher or non-logic Randovania changes.
 
 ### Exportable from Dev Builds
 
@@ -171,9 +169,15 @@ We do however recommend integrating it as early as it is possible, for a better 
 
 After roughly two years, we expect a game to be close to being considered stable.
 
-### Active Development
+## Remarks
 
-Please don't go for too long without visible development of either patcher or non-logic Randovania changes.
+All of these only apply to games in development. After a game reaches stable, further development is not needed.
 
-In any of the cases above, please keep us in the loop of what's going on - if you'll need to step away for some time, if you're having trouble with anything and so on.
+Please keep us in the loop of what's going on - if you'll need to step away for some time, if you're having trouble with anything and so on.
 Feel free to ask for help even with game specific issues, we might be able to offer guidance or sometimes even direct help!
+
+# Multiworld
+
+Before a game can work in Multiworld, it must first work properly as a solo game. It is highly recommended to finish the basic integration first.
+
+**TODO**
