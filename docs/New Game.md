@@ -159,7 +159,7 @@ After a game has been merged and is available in development builds, the respons
 - Randovania: We make sure your game is included in all Randovania changes.
 - You: Work towards the game reaching stable.
 
-We're happy to support new games by doing our part, but since that has a cost we don't want to be doing it forever there's some expectations regarding time frames:
+We're happy to support new games by doing our part, but since that has a cost, that we don't want to be doing forever, there are some expectations regarding time frames:
 
 ### Exportable from Dev Builds
 
