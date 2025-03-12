@@ -8,7 +8,6 @@ from randovania.generator.pickup_pool.pool_creator import calculate_pool_results
 
 if TYPE_CHECKING:
     from randovania.game_description.game_database_view import GameDatabaseView
-    from randovania.game_description.game_description import GameDescription
     from randovania.game_description.game_patches import GamePatches
     from randovania.game_description.pickup.pickup_entry import PickupEntry
     from randovania.game_description.resources.resource_info import ResourceInfo
@@ -84,7 +83,7 @@ def additional_starting_items(
 
 
 def additional_starting_equipment(
-    layout_configuration: BaseConfiguration, game: GameDescription, patches: GamePatches
+    layout_configuration: BaseConfiguration, game: GameDatabaseView, patches: GamePatches
 ) -> list[str]:
     if isinstance(patches.starting_equipment, ResourceCollection):
         return additional_starting_items(layout_configuration, game, patches.starting_equipment)

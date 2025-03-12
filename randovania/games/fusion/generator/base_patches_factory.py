@@ -22,9 +22,8 @@ class FusionBasePatchesFactory(BasePatchesFactory[FusionConfiguration]):
         game: GameDescription,
         is_multiworld: bool,
         player_index: int,
-        rng_required: bool = True,
     ) -> GamePatches:
-        parent = super().create_base_patches(configuration, rng, game, is_multiworld, player_index, rng_required)
+        parent = super().create_base_patches(configuration, rng, game, is_multiworld, player_index)
 
         get_node = game.region_list.typed_node_by_identifier
 

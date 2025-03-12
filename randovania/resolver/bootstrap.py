@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 
     from randovania.game.game_enum import RandovaniaGame
     from randovania.game_description.game_database_view import GameDatabaseView, ResourceDatabaseView
-    from randovania.game_description.game_description import GameDescription
     from randovania.game_description.game_patches import GamePatches
     from randovania.game_description.resources.resource_database import ResourceDatabase
     from randovania.game_description.resources.resource_info import ResourceGain
@@ -257,14 +256,14 @@ class Bootstrap[Configuration: BaseConfiguration]:
 
     def all_preplaced_pickup_locations(
         self,
-        game: GameDescription,
+        game: GameDatabaseView,
         config: Configuration,
         game_specific_check: Callable[[PickupNode, Configuration], bool],
     ) -> list[PickupNode]:
         locations = []
 
-        for node in game.region_list.all_nodes:
-            if isinstance(node, PickupNode) and game_specific_check(node, config):
+        for _, _, node in game.iterate_nodes_of_type(PickupNode):
+            if game_specific_check(node, config):
                 locations.append(node)
 
         return locations

@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 import typing_extensions
 
+from randovania.game_description.db.pickup_node import PickupNode
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
@@ -13,6 +15,7 @@ if TYPE_CHECKING:
     from randovania.game_description.db.node import Node
     from randovania.game_description.db.node_identifier import NodeIdentifier
     from randovania.game_description.db.region import Region
+    from randovania.game_description.hint_features import HintFeature
     from randovania.game_description.requirements.base import Requirement
     from randovania.game_description.resources.item_resource_info import ItemResourceInfo
     from randovania.game_description.resources.pickup_index import PickupIndex
@@ -195,6 +198,42 @@ class GameDatabaseView:
         Gets the requirement that determines if the player has won.
         """
         raise NotImplementedError
+
+    def get_all_hint_features(self) -> Iterable[HintFeature]:
+        """
+        Returns an iterable for all HintFeatures that exists.
+        """
+        raise NotImplementedError
+
+    def pickup_nodes_with_feature(self, feature: HintFeature) -> tuple[PickupNode, ...]:
+        """
+        Returns an iterable tuple of PickupNodes with the given feature (either directly or in their area)
+        """
+        return tuple(
+            node
+            for _, area, node in self.iterate_nodes_of_type(PickupNode)
+            if (feature in area.hint_features) or (feature in node.hint_features)
+        )
+
+    def node_from_pickup_index(self, index: PickupIndex) -> PickupNode:
+        """
+        Returns the PickupNode with the given index.
+        :raises: KeyError if it doesn't exist
+        """
+        for _, _, node in self.iterate_nodes_of_type(PickupNode):
+            if node.pickup_index == index:
+                return node
+        raise KeyError(index)
+
+    def area_from_node(self, node: Node) -> Area:
+        """
+        Returns the Area that contains the given node.
+        :raises: KeyError if it doesn't exist
+        """
+        for _, area, n in self.node_iterator():
+            if n == node:
+                return area
+        raise KeyError(f"Node not found {node}")
 
 
 class GameDatabaseViewProxy(GameDatabaseView):

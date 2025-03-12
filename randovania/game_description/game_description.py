@@ -5,7 +5,7 @@ from __future__ import annotations
 import collections
 import copy
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from randovania.game_description.db.dock_node import DockNode
 from randovania.game_description.db.hint_node import HintNode, HintNodeKind
@@ -225,17 +225,25 @@ class GameDescription(GameDatabaseView):
             if reduction.inventory_item is not None and not collection.has_resource(reduction.inventory_item):
                 yield reduction.inventory_item
 
+    @override
     def get_resource_database_view(self) -> ResourceDatabaseView:
         return self.resource_database
 
+    @override
     def default_starting_location(self) -> NodeIdentifier:
         return self.starting_location
 
+    @override
     def create_resource_collection(self) -> ResourceCollection:
         return ResourceCollection.with_database(self.resource_database)
 
+    @override
     def get_victory_condition(self) -> Requirement:
         return self.victory_condition
+
+    @override
+    def get_all_hint_features(self) -> Iterable[HintFeature]:
+        yield from self.hint_feature_database.values()
 
 
 def _resources_for_damage(

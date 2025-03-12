@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, final, override
 
 from randovania.game_description.db.hint_node import HintNode, HintNodeKind
 from randovania.game_description.db.pickup_node import PickupNode
+from randovania.game_description.game_database_view import typed_node_by_identifier
 from randovania.game_description.game_patches import GamePatches
 from randovania.game_description.hint import (
     PRECISION_PAIR_UNASSIGNED,
@@ -35,7 +36,6 @@ from randovania.resolver import debug, resolver
 if TYPE_CHECKING:
     from randovania.game_description.assignment import PickupTarget
     from randovania.game_description.db.node_identifier import NodeIdentifier
-    from randovania.game_description.db.region_list import RegionList
     from randovania.game_description.pickup.pickup_entry import PickupEntry
     from randovania.generator.filler.filler_configuration import FillerResults, PlayerPool
     from randovania.generator.pre_fill_params import PreFillParams
@@ -187,7 +187,7 @@ class HintDistributor(ABC):
     def get_generic_hint_nodes(self, prefill: PreFillParams) -> list[NodeIdentifier]:
         return [
             node.identifier
-            for node in prefill.game.region_list.iterate_nodes_of_type(HintNode)
+            for _, _, node in prefill.game.iterate_nodes_of_type(HintNode)
             if node.kind == HintNodeKind.GENERIC
         ]
 
@@ -198,8 +198,7 @@ class HintDistributor(ABC):
     async def assign_specific_location_hints(self, patches: GamePatches, prefill: PreFillParams) -> GamePatches:
         specific_location_precisions = await self.get_specific_pickup_precision_pairs()
 
-        wl = prefill.game.region_list
-        for node in wl.iterate_nodes_of_type(HintNode):
+        for _, _, node in prefill.game.iterate_nodes_of_type(HintNode):
             if node.kind == HintNodeKind.SPECIFIC_LOCATION:
                 identifier = node.identifier
                 patches = patches.assign_hint(
@@ -276,14 +275,12 @@ class HintDistributor(ABC):
         patches: GamePatches,
         rng: Random,
         player_pool: PlayerPool,
-        region_list: RegionList,
         hint_state: HintState,
         player_pools: Sequence[PlayerPool],
     ) -> GamePatches:
         # Since we haven't added expansions yet, these hints will always be for items added by the filler.
         full_hints_patches = self.fill_unassigned_hints(
             patches,
-            region_list,
             rng,
             hint_state,
             player_pools.index(player_pool),
@@ -304,11 +301,11 @@ class HintDistributor(ABC):
         :param patches:
         :param rng:
         :param player_pool:
-        :param player_state:
+        :param player_pools:
         :return:
         """
         get_hint_node: Callable[[NodeIdentifier], HintNode] = functools.partial(
-            patches.game.region_list.typed_node_by_identifier, t=HintNode
+            typed_node_by_identifier, patches.game, t=HintNode
         )
         hints_to_replace = {
             identifier: hint
@@ -340,7 +337,7 @@ class HintDistributor(ABC):
         `MORE_INTERESTING` pickups are a subset of `INTERESTING` pickups,
         which are a subset of `LEAST_INTERESTING` pickups.
         """
-        hint_distributor = player_pools[target.player].game.game.hints.hint_distributor
+        hint_distributor = player_pools[target.player].configuration.game.hints.hint_distributor
 
         if not hint_distributor.is_pickup_interesting(target, player_id, hint_node):
             return HintSuitability.LEAST_INTERESTING
@@ -359,7 +356,6 @@ class HintDistributor(ABC):
     def fill_unassigned_hints(
         self,
         patches: GamePatches,
-        region_list: RegionList,
         rng: Random,
         hint_state: HintState,
         player_id: int,
@@ -378,7 +374,7 @@ class HintDistributor(ABC):
                 # hint has already been assigned
                 continue
 
-            node = region_list.typed_node_by_identifier(hint_node, HintNode)
+            node = typed_node_by_identifier(patches.game, hint_node, HintNode)
             if node.kind != HintNodeKind.GENERIC:
                 continue
 
@@ -431,7 +427,9 @@ class HintDistributor(ABC):
 
             if not real_potential_targets:
                 # STILL no pickups to place - just use *anything* that hasn't been hinted
-                real_potential_targets = {node.pickup_index for node in region_list.iterate_nodes_of_type(PickupNode)}
+                real_potential_targets = {
+                    node.pickup_index for _, _, node in patches.game.iterate_nodes_of_type(PickupNode)
+                }
                 real_potential_targets -= hinted_locations
                 debug.debug_print(
                     f"  * Still no viable pickups; trying {len(real_potential_targets)} uninteresting pickups"
@@ -442,10 +440,12 @@ class HintDistributor(ABC):
 
             target = rng.choice(sorted(real_potential_targets))
 
+            region_list = None  # FIXME
+
             hinted_locations.add(target)
             debug.debug_print(
                 f"  * Placing hint for {patches.pickup_assignment.get(target, target)}"
-                f" at {region_list.node_name(region_list.node_from_pickup_index(target))}\n"
+                f" at {region_list.node_name(patches.game.node_from_pickup_index(target))}\n"
             )
 
             patches = patches.assign_hint(hint_node, LocationHint.unassigned(target))
@@ -497,25 +497,33 @@ class HintDistributor(ABC):
         If `location` is provided, the `REGION_ONLY` and `DETAILED` features will be calculated.
         """
 
-        region_list = patches.game.region_list
+        game = patches.game
         locations_with_feature: dict[HintFeature | HintLocationPrecision, list[PickupNode]] = defaultdict(list)
         relevant_locations: list[PickupNode] = []
 
-        relevant_locations.extend(node for node in region_list.iterate_nodes_of_type(PickupNode))
-        for feature in patches.game.hint_feature_database.values():
-            locations_with_feature[feature].extend(region_list.pickup_nodes_with_feature(feature))
+        target_region = None
+        target_area = None
 
-        area = region_list.nodes_to_area
+        for region, area, node in game.iterate_nodes_of_type(PickupNode):
+            relevant_locations.append(node)
+            if node == location:
+                target_region = region
+                target_area = area
+
+        relevant_locations.extend(node for _, _, node in game.iterate_nodes_of_type(PickupNode))
+        for feature in game.get_all_hint_features():
+            locations_with_feature[feature].extend(game.pickup_nodes_with_feature(feature))
+
         if location is not None:
             if self.use_region_location_precision:
                 locations_with_feature[HintLocationPrecision.REGION_ONLY] = [
                     node
-                    for node in region_list.nodes_to_region(location).all_nodes
-                    if (isinstance(node, PickupNode) and area(node).in_dark_aether == area(location).in_dark_aether)
+                    for region, area, node in game.iterate_nodes_of_type(PickupNode)
+                    if region == target_region and area.in_dark_aether == target_area.in_dark_aether
                 ]
             if self.use_detailed_location_precision:
                 locations_with_feature[HintLocationPrecision.DETAILED] = [
-                    node for node in region_list.nodes_to_area(location).nodes if isinstance(node, PickupNode)
+                    node for region, area, node in game.iterate_nodes_of_type(PickupNode) if area == target_area
                 ]
 
         detailed_precision = HintLocationPrecision.DETAILED if self.use_detailed_location_precision else None
@@ -567,8 +575,6 @@ class HintDistributor(ABC):
         Determines the final PrecisionPair for a given hint, filling in any unassigned or featural precisions.
         """
 
-        region_list = patches.game.region_list
-
         precision = hint.precision
         if precision is PRECISION_PAIR_UNASSIGNED:
             precision = self.default_precision_pair
@@ -591,10 +597,10 @@ class HintDistributor(ABC):
         if precision.location == HintLocationPrecision.FEATURAL or isinstance(
             precision.location, SpecificHintPrecision
         ):
-            location = region_list.node_from_pickup_index(hint.target)
+            location = patches.game.node_from_pickup_index(hint.target)
             debug.debug_print(f"> Choosing location feature for {location.identifier.as_string}")
 
-            location_features = location.hint_features | region_list.nodes_to_area(location).hint_features
+            location_features = location.hint_features | patches.game.area_from_node(location).hint_features
             loc_chooser = self.get_location_feature_chooser(patches, location)
 
             additional_loc_precisions = []
@@ -655,7 +661,6 @@ class HintDistributor(ABC):
     ) -> GamePatches:
         """
         Adds precision to all assigned `LocationHint`s that are missing one.
-        :param player_state:
         :param patches:
         :param rng:
         :param player_pools:
@@ -763,7 +768,6 @@ async def distribute_generic_hints(
             patches,
             rng,
             result.pool,
-            patches.game.region_list,
             hint_state,
             filler_results.player_pools,
         )
