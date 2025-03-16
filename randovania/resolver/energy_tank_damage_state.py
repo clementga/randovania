@@ -41,8 +41,7 @@ class EnergyTankDamageState(DamageState):
         result = EnergyTankDamageState(
             self._starting_energy,
             self._energy_per_tank,
-            self._resource_database,
-            self._region_list,
+            self._energy_tank,
         )
         result._energy = self._energy
         return result

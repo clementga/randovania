@@ -7,16 +7,12 @@ if TYPE_CHECKING:
     from randovania.game_description.db.node import Node
     from randovania.game_description.requirements.resource_requirement import ResourceRequirement
     from randovania.game_description.resources.resource_collection import ResourceCollection
-    from randovania.game_description.resources.resource_database import ResourceDatabase
 
 
 class DamageState(ABC):
     """
     Interface responsible for keeping track of all data related to Damage requirements.
     """
-
-    def resource_database(self) -> ResourceDatabase:
-        """The ResourceDatabase."""
 
     def health_for_damage_requirements(self) -> int:
         """How much health is present for purpose of checking damage requirements."""
